@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Juego 3D Móvil</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #6495ED;
+      touch-action: manipulation;
+    }
+
+    #questionPanel,
+    #nextLevelPanel,
+    #gameEndPanel {
+      position: absolute;
+      top: 20%;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: rgba(0, 0, 0, 0.85);
+      color: white;
+      padding: 20px;
+      border-radius: 12px;
+      font-size: 20px;
+      font-family: sans-serif;
+      text-align: center;
+      z-index: 10;
+      display: none;
+    }
+
+    #questionPanel input {
+      padding: 10px;
+      font-size: 18px;
+      width: 80%;
+      margin-top: 10px;
+      border-radius: 8px;
+      border: none;
+    }
+
+    #questionPanel button,
+    #nextLevelPanel button,
+    #gameEndPanel button {
+      margin-top: 12px;
+      font-size: 20px;
+      padding: 10px 20px;
+      border-radius: 8px;
+      background-color: #00aa00;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+
+    #mobileControls {
+      position: absolute;
+      bottom: 40px;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      gap: 65px;
+      z-index: 10;
+    }
+
+    #mobileControls button {
+      font-size: 48px;
+      padding: 30px 45px;
+      border-radius: 15px;
+      background-color: white;
+      /* Fondo blanco */
+      border: none;
+    }
+
+    #message {
+      position: absolute;
+      top: 10px;
+      width: 100%;
+      text-align: center;
+      font-size: 24px;
+      color: white;
+      font-family: sans-serif;
+      display: none;
+      z-index: 10;
+    }
+
+    #score {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      font-size: 24px;
+      font-family: sans-serif;
+      color: yellow;
+      background: rgba(0, 0, 0, 0.6);
+      padding: 10px;
+      border-radius: 10px;
+      z-index: 10;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="message"></div>
+  <div id="score">Puntos: 0</div>
+
+  <div id="questionPanel">
+    <div id="questionText"></div>
+    <input type="text" id="answerInput" placeholder="Tu respuesta...">
+    <br><br>
+    <button onclick="submitAnswer()">Responder</button>
+  </div>
+
+  <div id="nextLevelPanel">
+    <div>¡Bien hecho! Siguiente nivel</div>
+    <br>
+    <button onclick="continueToNextLevel()">Continuar</button>
+  </div>
+
+  <div id="gameEndPanel">
+    <div>¡Juego completado!</div>
+    <br>
+    <button onclick="restartGame()">Jugar de nuevo</button>
+  </div>
+
+  <div id="mobileControls">
+    <button id="leftBtn"></button>        
+    <button id="rightBtn"></button>
+  </div>
+
+  <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
+  <script>
+    let scene = new THREE.Scene();
+    let camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    let renderer = new THREE.WebGLRenderer({antialias: true});
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const loader = new THREE.TextureLoader();
+    loader.load('cielo.jpg', function (texture) {
+      scene.background = texture;
+    });
+
+    const light = new THREE.DirectionalLight(0xffffff, 1.2);
+    light.position.set(5, 10, -5);
+    scene.add(light);
+    scene.add(new THREE.AmbientLight(0x888888));
+
+    const player = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshStandardMaterial({color: 0x00ff00})
+    );
+    player.position.set(0, 0.5, 0);
+    scene.add(player);
+
+    const floor = new THREE.Mesh(
+      new THREE.BoxGeometry(5, 0.1, 300),
+      new THREE.MeshStandardMaterial({color: 0x4444ff})
+    );
+    floor.position.set(0, 0, 150);
+    scene.add(floor);
+
+    camera.position.set(0, 5, -10);
+    camera.lookAt(player.position);
+
+    let obstacles = [];
+    let currentLevel = 0;
+    let isAnswering = false;
+    let isPaused = false;
+    let moveSpeed = 0.1;
+    let keys = {};
+    let score = 0;
+
+    const scoreDisplay = document.getElementById("score");
+
+    const questions = [
+      {question: "¿Cuánto es 2 + 2?", answer: "4"},
+      {question: "Capital de Francia?", answer: "paris"},
+      {question: "5 * 3?", answer: "15"},
+      {question: "¿Cuál es el color del cielo?", answer: "azul"},
+      {question: "¿Cuántos días tiene una semana?", answer: "7"},
+      {question: "1+1", answer: "2"}
+    ];
+
+    function updateScore(amount) {
+      score += amount;
+      if (score < 0) score = 0;
+      scoreDisplay.textContent = `Puntos: ${score}`;
+    }
+
+    function createObstacles(level) {
+      obstacles.forEach(obs => scene.remove(obs));
+      obstacles = [];
+      let count = 5 + level * 5;
+      for (let i = 0; i < count; i++) {
+        let obs = new THREE.Mesh(
+          new THREE.BoxGeometry(1, 1, 1),
+          new THREE.MeshStandardMaterial({color: 0xff0000})
+        );
+        let x = (Math.random() * 3.6 - 1.8);
+        let z = 10 + i * 5 + (Math.random() * 2 - 1);
+        obs.position.set(x, 0.5, z);
+        scene.add(obs);
+        obstacles.push(obs);
+      }
+    }
+
+    function showMessage(text, duration = 2000) {
+      const msg = document.getElementById("message");
+      msg.textContent = text;
+      msg.style.display = "block";
+      setTimeout(() => msg.style.display = "none", duration);
+    }
+
+    function askQuestion() {
+      isAnswering = true;
+      isPaused = true;
+      document.getElementById("questionPanel").style.display = "block";
+      document.getElementById("questionText").textContent = questions[currentLevel % questions.length].question;
+      document.getElementById("answerInput").value = "";
+    }
+
+    function submitAnswer() {
+      const answer = document.getElementById("answerInput").value.trim().toLowerCase();
+      const correct = questions[currentLevel % questions.length].answer;
+      document.getElementById("questionPanel").style.display = "none";
+      isAnswering = false;
+
+      if (answer === correct) {
+        updateScore(10);
+        document.getElementById("nextLevelPanel").style.display = "block";
+      } else {
+        updateScore(-5);
+        showMessage("Respuesta incorrecta", 2000);
+        resetPlayer(true);
+        isPaused = false;
+      }
+    }
+
+    function continueToNextLevel() {
+      document.getElementById("nextLevelPanel").style.display = "none";
+      currentLevel++;
+
+      if (currentLevel >= questions.length) {
+        document.getElementById("gameEndPanel").style.display = "block";
+        isPaused = true;
+        return;
+      }
+
+      moveSpeed += 0.05;
+      createObstacles(currentLevel);
+      player.position.set(0, 0.5, 0); // reiniciar desde el inicio
+      isPaused = false;
+    }
+
+    function resetPlayer(toStart = false) {
+      if (toStart) {
+        player.position.set(0, 0.5, 0);
+      } else {
+        player.position.set(0, 0.5, player.position.z + 2);
+      }
+    }
+
+    function restartGame() {
+      currentLevel = 0;
+      moveSpeed = 0.1;
+      score = 0;
+      updateScore(0);
+      createObstacles(currentLevel);
+      document.getElementById("gameEndPanel").style.display = "none";
+      player.position.set(0, 0.5, 0);
+      isPaused = false;
+    }
+
+    document.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+    document.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+    document.getElementById("leftBtn").addEventListener("touchstart", () => keys["a"] = true);
+    document.getElementById("leftBtn").addEventListener("touchend", () => keys["a"] = false);
+    document.getElementById("rightBtn").addEventListener("touchstart", () => keys["d"] = true);
+    document.getElementById("rightBtn").addEventListener("touchend", () => keys["d"] = false);
+
+    createObstacles(currentLevel);
+
+    setInterval(() => {
+      if (!isPaused && !isAnswering) updateScore(1);
+    }, 3000);
+
+    function animate() {
+      requestAnimationFrame(animate);
+      if (!isAnswering && !isPaused) {
+        if (keys['a']) player.position.x += 0.1;
+        if (keys['d']) player.position.x -= 0.1;
+
+        player.position.x = Math.max(-2, Math.min(2, player.position.x));
+        player.position.z += moveSpeed;
+
+        camera.position.set(player.position.x, 5, player.position.z - 10);
+        camera.lookAt(player.position);
+
+        for (let obs of obstacles) {
+          let dx = player.position.x - obs.position.x;
+          let dz = player.position.z - obs.position.z;
+          if (Math.abs(dx) < 1 && Math.abs(dz) < 1) {
+            updateScore(-7);
+            showMessage("¡Chocaste!", 2000);
+            resetPlayer(true);
+            return;
+          }
+        }
+
+        let lastZ = Math.max(...obstacles.map(o => o.position.z));
+        if (player.position.z > lastZ + 1 && !isAnswering) {
+          askQuestion();
+        }
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+  </script>
+</body>
+
+</html>
